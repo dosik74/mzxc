@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spot Music - Поиск и прослушивание</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #fff;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 0.5rem;
+      text-shadow: 2px 2px 8px rgba(0,0,0,0.2);
+    }
+    .search-container {
+      max-width: 600px;
+      margin: 0 auto 3rem;
+    }
+    .search-form {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .search-input {
+      flex: 1;
+      padding: 1rem 1.5rem;
+      font-size: 1.1rem;
+      border: none;
+      border-radius: 50px;
+      outline: none;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    .search-btn {
+      padding: 1rem 2rem;
+      font-size: 1.1rem;
+      background: #ff6b6b;
+      color: white;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px rgba(255,107,107,0.4);
+    }
+    .search-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 25px rgba(255,107,107,0.6);
+    }
+    .search-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .results {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .track-card {
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 1.5rem;
+      transition: transform 0.3s, box-shadow 0.3s;
+      cursor: pointer;
+    }
+    .track-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+    .track-thumbnail {
+      width: 100%;
+      aspect-ratio: 16/9;
+      object-fit: cover;
+      border-radius: 12px;
+      margin-bottom: 1rem;
+      background: #333;
+    }
+    .track-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .track-artist {
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+    .track-duration {
+      font-size: 0.8rem;
+      opacity: 0.6;
+      margin-top: 0.5rem;
+    }
+    .player-container {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0,0,0,0.9);
+      padding: 1.5rem;
+      backdrop-filter: blur(10px);
+      z-index: 100;
+    }
+    .player {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .player-thumbnail {
+      width: 80px;
+      height: 80px;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+    .player-info {
+      flex: 1;
+    }
+    .player-title {
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    .player-artist {
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+    audio {
+      flex: 2;
+      max-width: 500px;
+    }
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      font-size: 1.2rem;
+    }
+    .loading-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+      opacity: 0.95;
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.25);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .error {
+      background: rgba(255,0,0,0.2);
+      border: 1px solid rgba(255,0,0,0.4);
+      border-radius: 12px;
+      padding: 1rem;
+      text-align: center;
+      margin: 1rem 0;
+    }
+    @media (max-width: 768px) {
+      .container {
+        padding: 1rem;
+      }
+      h1 {
+        font-size: 2rem;
+      }
+      .player {
+        flex-direction: column;
+      }
+      audio {
+        width: 100%;
+        max-width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎵 Spot Music</h1>
+      <p>Поиск и прослушивание треков</p>
+    </header>
+
+    <div class="search-container">
+      <form id="searchForm" class="search-form">
+        <input type="text" id="searchInput" class="search-input" placeholder="Найти трек..." autocomplete="off">
+        <button type="submit" id="searchBtn" class="search-btn">Найти</button>
+      </form>
+    </div>
+
+    <div id="resultsContainer"></div>
+  </div>
+
+  <div class="player-container" id="playerContainer" style="display: none;">
+    <div class="player">
+      <img id="playerThumbnail" class="player-thumbnail" src="" alt="Thumbnail">
+      <div class="player-info">
+        <div id="playerTitle" class="player-title"></div>
+        <div id="playerArtist" class="player-artist"></div>
+      </div>
+      <audio id="audioPlayer" controls></audio>
+      <div id="playerLoading" style="display:none; margin-left:10px;">
+        <div class="loading-indicator"><div class="spinner"></div><div>Загрузка...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '/api';
+    const searchForm = document.getElementById('searchForm');
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const playerContainer = document.getElementById('playerContainer');
+    const audioPlayer = document.getElementById('audioPlayer');
+    const playerThumbnail = document.getElementById('playerThumbnail');
+    const playerTitle = document.getElementById('playerTitle');
+    const playerArtist = document.getElementById('playerArtist');
+    const playerLoading = document.getElementById('playerLoading');
+
+    let currentTrack = null;
+    let isLoading = false;
+    let currentFetchController = null;
+
+    searchForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const query = searchInput.value.trim();
+      if (!query) return;
+
+      searchBtn.disabled = true;
+      searchBtn.textContent = 'Ищем...';
+      resultsContainer.innerHTML = '<div class="loading">🔍 Поиск треков...</div>';
+
+      try {
+        const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
+        if (!response.ok) throw new Error('Ошибка поиска');
+        
+        const tracks = await response.json();
+        displayResults(tracks);
+      } catch (error) {
+        resultsContainer.innerHTML = `<div class="error">❌ Ошибка: ${error.message}</div>`;
+        console.error('Search error:', error);
+      } finally {
+        searchBtn.disabled = false;
+        searchBtn.textContent = 'Найти';
+      }
+    });
+
+    function displayResults(tracks) {
+      if (!tracks || tracks.length === 0) {
+        resultsContainer.innerHTML = '<div class="loading">Ничего не найдено</div>';
+        return;
+      }
+
+      resultsContainer.innerHTML = `
+        <div class="results">
+          ${tracks.map(track => `
+            <div class="track-card" data-track='${JSON.stringify(track)}'>
+              <img src="${track.thumbnail}" alt="${track.title}" class="track-thumbnail">
+              <div class="track-title">${escapeHtml(track.title)}</div>
+              <div class="track-artist">${escapeHtml(track.artist)}</div>
+              <div class="track-duration">${formatDuration(track.duration)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+
+      document.querySelectorAll('.track-card').forEach(card => {
+        card.addEventListener('click', () => playTrack(JSON.parse(card.dataset.track)));
+      });
+    }
+
+    async function playTrack(track) {
+      // If already loading the same track, ignore repeated clicks
+      if (isLoading && currentTrack && track.url === currentTrack.url) return;
+
+      // Abort any previous ongoing fetch for a different track
+      if (currentFetchController) {
+        try { currentFetchController.abort(); } catch (e) {}
+        currentFetchController = null;
+      }
+
+      isLoading = true;
+      playerLoading.style.display = 'block';
+
+      try {
+        playerContainer.style.display = 'block';
+        playerThumbnail.src = track.thumbnail;
+        playerTitle.textContent = track.title;
+        playerArtist.textContent = track.artist;
+        // Reset audio element
+        audioPlayer.pause();
+        audioPlayer.removeAttribute('src');
+        audioPlayer.load();
+
+        const controller = new AbortController();
+        currentFetchController = controller;
+
+        const response = await fetch(`${API_BASE}/stream?url=${encodeURIComponent(track.url)}`, { signal: controller.signal });
+        if (!response.ok) throw new Error('Ошибка получения стрима');
+
+        const data = await response.json();
+        if (controller.signal.aborted) return;
+
+        audioPlayer.src = data.audioUrl;
+        // Show loading until playback actually starts
+        playerLoading.style.display = 'block';
+        await audioPlayer.play();
+        currentTrack = track;
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          console.log('Stream fetch aborted');
+        } else {
+          alert(`Ошибка воспроизведения: ${error.message}`);
+          console.error('Stream error:', error);
+        }
+      } finally {
+        isLoading = false;
+        currentFetchController = null;
+        playerLoading.style.display = 'none';
+      }
+    }
+
+    // Update loading indicator based on audio events
+    audioPlayer.addEventListener('waiting', () => {
+      playerLoading.style.display = 'block';
+    });
+    audioPlayer.addEventListener('canplay', () => {
+      playerLoading.style.display = 'none';
+    });
+    audioPlayer.addEventListener('playing', () => {
+      playerLoading.style.display = 'none';
+    });
+    audioPlayer.addEventListener('stalled', () => {
+      playerLoading.style.display = 'block';
+    });
+
+    function formatDuration(seconds) {
+      if (!seconds) return '';
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
