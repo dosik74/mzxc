@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Style SVG Animation</title>
+    <style>
+        /* Фирменный темный фон Дискорда */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #313338;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Быстрое вращение и неоновое свечение */
+        .discord-spinner {
+            width: 250px;
+            height: 250px;
+            transform-origin: center;
+            animation: spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            filter: drop-shadow(0 0 15px rgba(255, 255, 255, 0.35))
+                    drop-shadow(0 0 30px rgba(88, 101, 242, 0.25));
+        }
+
+        /* Анимированный контур волны и ноты с изменением цвета */
+        .music-path {
+            stroke: #ffffff;
+            stroke-width: 8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            animation: colorShift 4s ease-in-out infinite alternate;
+        }
+
+        /* --- КЛЮЧЕВЫЕ КАДРЫ АНИМАЦИИ --- */
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes colorShift {
+            0% { stroke: #ffffff; }
+            40% { stroke: #5865F2; } /* Discord Blurple */
+            80% { stroke: #23A55A; } /* Discord Green */
+            100% { stroke: #00A8FC; } /* Discord Link Blue */
+        }
+    </style>
+</head>
+<body>
+
+    <svg class="discord-spinner" viewBox="0 0 400 400">
+        <path class="music-path" d="
+            M 70,200 
+            C 85,180 90,240 105,230
+            C 120,220 125,160 140,170
+            C 155,180 160,260 175,250
+            C 190,240 185,120 205,130
+            C 225,140 220,250 240,240
+            C 260,230 255,150 275,160
+            C 290,165 285,215 305,200
+            L 310,110
+            C 310,110 330,130 350,150
+            C 365,165 355,210 340,210
+            C 330,210 325,190 320,175
+            L 310,210
+            M 310,210 
+            L 305,240
+            A 25,25 0 1,1 260,255
+            A 25,25 0 1,1 305,240
+        " />
+    </svg>
+
+</body>
+</html>

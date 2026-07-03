@@ -12,80 +12,92 @@ const PORT = 3006;
 app.use(cors());
 app.use(express.json());
 
-const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || null;
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || null;
-let spotifyToken = null;
-let spotifyTokenExpires = 0;
+const LASTFM_API_KEY = process.env.LASTFM_API_KEY || 'c2a61c098826bc02dd78181437242c8b';
+const LASTFM_SHARED_SECRET = process.env.LASTFM_SHARED_SECRET || '4dc0ae6b48c44c7fbdce0addc5f7d6b3';
+const LASTFM_API_ROOT = 'https://ws.audioscrobbler.com/2.0/';
 
-async function fetchSpotifyToken() {
-  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
-    throw new Error('Spotify credentials are not configured');
-  }
-
-  const now = Date.now();
-  if (spotifyToken && spotifyTokenExpires > now + 5000) {
-    return spotifyToken;
-  }
-
-  const auth = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64');
-  const response = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${auth}`,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: 'grant_type=client_credentials'
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Spotify token request failed: ${response.status} ${text}`);
-  }
-
-  const data = await response.json();
-  spotifyToken = data.access_token;
-  spotifyTokenExpires = now + (data.expires_in || 3600) * 1000;
-  return spotifyToken;
+function normalizeArtist(artist) {
+  if (!artist) return 'Unknown Artist';
+  if (typeof artist === 'string') return artist;
+  return artist.name || artist['#text'] || 'Unknown Artist';
 }
 
-async function spotifyFetch(path, params = {}) {
-  const token = await fetchSpotifyToken();
-  const query = new URLSearchParams(params).toString();
-  const url = `https://api.spotify.com/v1${path}${query ? `?${query}` : ''}`;
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
+function getTrackImage(track) {
+  if (!track?.image) return null;
+  if (Array.isArray(track.image)) {
+    const found = track.image.find((item) => ['mega', 'extralarge', 'large', 'medium'].includes(item.size));
+    return found?.['#text'] || track.image[0]?.['#text'] || null;
+  }
+  return track.image['#text'] || null;
+}
+
+function sanitizeId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_-]/g, '')
+    .slice(0, 60);
+}
+
+function buildTrackId(track) {
+  const title = track.name || track.title || 'unknown';
+  const artist = normalizeArtist(track.artist);
+  return sanitizeId(`${title}-${artist}`);
+}
+
+async function lastFmRequest(method, params = {}) {
+  const url = new URL(LASTFM_API_ROOT);
+  url.searchParams.set('method', method);
+  url.searchParams.set('api_key', LASTFM_API_KEY);
+  url.searchParams.set('format', 'json');
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value));
+    }
   });
+
+  const response = await fetch(url.toString());
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Spotify request failed: ${response.status} ${text}`);
+    const body = await response.text();
+    throw new Error(`Last.fm request failed: ${response.status} ${body}`);
   }
   return response.json();
 }
 
-async function spotifySearchTracks(query) {
-  const data = await spotifyFetch('/search', { q: query, type: 'track', limit: 12 });
-  return (data.tracks?.items || []).map((track) => ({
-    id: track.id,
-    title: track.name,
-    artist: track.artists.map((a) => a.name).join(', '),
-    thumbnail: track.album?.images?.[0]?.url || null,
-    duration: track.duration_ms ? Math.round(track.duration_ms / 1000) : undefined,
-    spotifyUrl: track.external_urls?.spotify,
-    searchQuery: `${track.name} ${track.artists[0]?.name || ''}`.trim()
-  }));
+function normalizeLastFmTrack(track) {
+  if (!track) return null;
+  const title = track.name || track.title || 'Unknown Title';
+  const artist = normalizeArtist(track.artist);
+  const thumbnail = getTrackImage(track);
+  const searchQuery = `${title} ${artist}`.trim();
+
+  return {
+    id: buildTrackId(track),
+    title,
+    artist,
+    thumbnail,
+    duration: undefined,
+    url: `ytsearch1:${searchQuery}`,
+    lastfmUrl: track.url || null,
+    searchQuery
+  };
 }
 
-async function spotifyGetRecommendations(seedGenres = 'pop,edm') {
-  const data = await spotifyFetch('/recommendations', { seed_genres: seedGenres, limit: 12 });
-  return (data.tracks || []).map((track) => ({
-    id: track.id,
-    title: track.name,
-    artist: track.artists.map((a) => a.name).join(', '),
-    thumbnail: track.album?.images?.[0]?.url || null,
-    duration: track.duration_ms ? Math.round(track.duration_ms / 1000) : undefined,
-    spotifyUrl: track.external_urls?.spotify,
-    searchQuery: `${track.name} ${track.artists[0]?.name || ''}`.trim()
-  }));
+async function searchLastFmTracks(query, limit = 12) {
+  const data = await lastFmRequest('track.search', { track: query, limit });
+  let tracks = data.results?.trackmatches?.track || [];
+  if (!tracks) return [];
+  if (!Array.isArray(tracks)) tracks = [tracks];
+  return tracks.map(normalizeLastFmTrack).filter(Boolean);
+}
+
+async function getLastFmRecommendations(tag = 'pop', limit = 12) {
+  const data = await lastFmRequest('chart.gettoptracks', { limit });
+  let tracks = data.tracks?.track || [];
+  if (!tracks) return [];
+  if (!Array.isArray(tracks)) tracks = [tracks];
+  return tracks.map(normalizeLastFmTrack).filter(Boolean);
 }
 
 // Optional MongoDB (Mongoose) integration for listening history
@@ -178,43 +190,8 @@ app.get('/api/search', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter is required' });
     }
 
-    try {
-      const spotifyResults = await spotifySearchTracks(q);
-      if (spotifyResults.length) {
-        return res.json(spotifyResults);
-      }
-    } catch (spotifyError) {
-      console.warn('Spotify search failed, falling back to YouTube:', spotifyError.message);
-    }
-
-    const stdout = await runYtDlp([
-      `ytsearch10:${q}`,
-      '--dump-json',
-      '--flat-playlist',
-      '--no-playlist'
-    ]);
-
-    const results = stdout.trim().split('\n').filter(line => line);
-    console.log('Search results lines:', results.length);
-
-    const tracks = results.map(line => {
-      try {
-        const video = JSON.parse(line);
-        return {
-          id: video.id,
-          title: video.title,
-          artist: video.channel || video.uploader || 'Unknown Artist',
-          thumbnail: video.thumbnail || (`https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`),
-          duration: video.duration,
-          url: `https://www.youtube.com/watch?v=${video.id}`
-        };
-      } catch (e) {
-        console.error('Error parsing line:', e);
-        return null;
-      }
-    }).filter(track => track && track.id);
-
-    console.log('Tracks count:', tracks.length);
+    const tracks = await searchLastFmTracks(String(q), 12);
+    console.log('Search results count:', tracks.length);
     res.json(tracks);
   } catch (error) {
     console.error('Search error:', error);
@@ -222,13 +199,29 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-app.get('/api/spotify/recommendations', async (req, res) => {
+app.get('/api/recommendations', async (req, res) => {
+  console.log('Received recommendations request');
   try {
-    const seedGenres = req.query.seed_genres || 'pop,edm';
-    const recommendations = await spotifyGetRecommendations(String(seedGenres));
-    res.json(recommendations);
+    const query = String(req.query.q || '').trim();
+    const seedGenres = String(req.query.seed_genres || 'pop').split(',')[0].trim() || 'pop';
+    const tracks = query ? await searchLastFmTracks(query, 12) : await getLastFmRecommendations(seedGenres, 12);
+    console.log('Recommendations count:', tracks.length);
+    res.json(tracks);
   } catch (error) {
-    console.error('Spotify recommendations error:', error);
+    console.error('Recommendations error:', error);
+    res.status(500).json({ error: 'Failed to fetch recommendations', details: error.message });
+  }
+});
+
+app.get('/api/spotify/recommendations', async (req, res) => {
+  console.log('Received legacy spotify recommendations request');
+  try {
+    const query = String(req.query.q || '').trim();
+    const seedGenres = String(req.query.seed_genres || 'pop').split(',')[0].trim() || 'pop';
+    const tracks = query ? await searchLastFmTracks(query, 12) : await getLastFmRecommendations(seedGenres, 12);
+    res.json(tracks);
+  } catch (error) {
+    console.error('Legacy recommendations error:', error);
     res.status(500).json({ error: 'Failed to fetch recommendations', details: error.message });
   }
 });

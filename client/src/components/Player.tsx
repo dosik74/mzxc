@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import LoadingSpinner from './LoadingSpinner'
 
 type Track = {
   id: string
@@ -7,6 +8,7 @@ type Track = {
   thumbnail?: string
   duration?: number
   url: string
+  videoId?: string
 }
 
 // Singleton helper so App can trigger playback
@@ -35,7 +37,12 @@ export default function Player() {
 
     const updateTime = () => setCurrentTime(audio.currentTime)
     const onLoaded = () => setDuration(audio.duration || 0)
-    const onEnded = () => setPlaying(false)
+    const onEnded = () => {
+      setPlaying(false)
+      if (track) {
+        saveListeningHistory(track, 'completed', audio.currentTime)
+      }
+    }
 
     audio.addEventListener('timeupdate', updateTime)
     audio.addEventListener('loadedmetadata', onLoaded)
@@ -64,18 +71,57 @@ export default function Player() {
     setDuration(0)
 
     try {
-      const res = await fetch(`/api/stream?url=${encodeURIComponent(t.url)}`)
+      // Get video ID from URL or use provided videoId
+      const videoId = t.videoId || extractVideoId(t.url)
+      if (!videoId) throw new Error('Invalid video ID')
+
+      // Get streaming URL
+      const res = await fetch(`/api/stream/${videoId}`)
+      if (!res.ok) throw new Error(`Stream error: ${res.status}`)
+      
       const data = await res.json()
+      if (!data.url) throw new Error('No stream URL available')
+
       if (!audioRef.current) return
-      audioRef.current.src = data.audioUrl
+      audioRef.current.src = data.url
       audioRef.current.volume = volume
       await audioRef.current.play()
       setPlaying(true)
+
+      // Save to listening history
+      saveListeningHistory(t, 'playing', 0)
     } catch (error) {
-      console.error(error)
+      console.error('Play error:', error)
       alert('Ошибка воспроизведения')
     } finally {
       setLoading(false)
+    }
+  }
+
+  function extractVideoId(url: string): string | null {
+    if (!url) return null
+    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/)
+    return match ? match[1] : null
+  }
+
+  async function saveListeningHistory(t: Track, status: 'playing' | 'paused' | 'completed' | 'skipped', playedSeconds: number) {
+    try {
+      await fetch('/api/listening-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          trackId: t.id,
+          title: t.title,
+          artist: t.artist,
+          videoUrl: t.url,
+          startSecond: 0,
+          duration: t.duration || 0,
+          playedSeconds,
+          status,
+        }),
+      })
+    } catch (err) {
+      console.warn('Failed to save listening history:', err)
     }
   }
 
@@ -182,7 +228,12 @@ export default function Player() {
                 className="h-1 w-full accent-cyan-400 bg-white/10 rounded-full"
               />
             </div>
-            {loading && <div className="text-[12px] text-white/70">Загрузка...</div>}
+            {loading && (
+              <div className="flex items-center gap-2">
+                <LoadingSpinner small className="rounded-full" />
+                <div className="text-[12px] text-white/70">{/* keep small label for accessibility */}Загрузка...</div>
+              </div>
+            )}
           </div>
         </div>
       </div>

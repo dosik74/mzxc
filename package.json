@@ -2,10 +2,10 @@
   "name": "spot-music",
   "version": "1.0.0",
   "description": "Custom music streaming service",
-  "main": "simple-server.js",
+  "main": "server-v2.js",
   "scripts": {
-    "start": "node simple-server.js",
-    "dev": "node simple-server.js",
+    "start": "node server-v2.js",
+    "dev": "node server-v2.js",
     "install:yt-dlp": "node scripts/install-yt-dlp.js"
   },
   "dependencies": {
@@ -13,6 +13,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "mongoose": "^9.7.3",
+    "node-fetch": "^2.7.0",
     "youtube-music-api": "^1.0.6",
     "yt-dlp-wrap": "^2.3.12"
   }
