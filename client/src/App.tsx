@@ -12,36 +12,45 @@ type Track = {
   query?: string
   spotifyUrl?: string
   lastfmUrl?: string
+  listeners?: number
+  playcount?: number
+  searchQuery?: string
+  source?: string
+  videoId?: string
+  album?: string
+  previewUrl?: string
+  releaseDate?: string
+  genre?: string
 }
 
-type PageKey = 'home' | 'search' | 'recommendations' | 'tracks' | 'track'
+type PageKey = 'home' | 'search' | 'recommendations' | 'tracks' | 'track' | 'track-detail' | 'catalog' | 'tag'
 
 type Locale = 'ru' | 'en'
 
 const dictionary = {
   ru: {
     appTitle: 'FOR YOU',
-    subtitle: 'Last.fm метаданные и YouTube стрим',
+    subtitle: 'iTunes метаданные и YouTube стрим',
     home: 'Главная',
     search: 'Поиск',
     recommendations: 'Рекомендации',
     allTracks: 'Все треки',
-    spotifyPicks: 'Топ Last.fm',
+    spotifyPicks: 'Топ iTunes',
     discover: 'Открой звук, который подходит твоему настроению.',
-    homeDescription: 'Ищи треки по метаданным Last.fm и запускай поток из YouTube.',
+    homeDescription: 'Ищи треки по метаданным iTunes и запускай поток из YouTube.',
     searchTracks: 'Поиск треков',
-    searchDescription: 'Находи композиции через Last.fm и слушай их с YouTube.',
+    searchDescription: 'Находи композиции через iTunes и слушай их с YouTube.',
     searchPlaceholder: 'Искать исполнителя, песню или альбом',
     searchButton: 'Поиск',
-    recommendationsTitle: 'Рекомендации Last.fm',
-    recommendationsDescription: 'Свежие треки на основе популярных треков Last.fm.',
+    recommendationsTitle: 'Рекомендации iTunes',
+    recommendationsDescription: 'Свежие треки на основе популярных треков iTunes.',
     refresh: 'Обновить',
     featuredRecommendations: 'Популярные подборки',
     whyItWorks: 'Почему это работает',
-    whyItWorksDescription: 'Last.fm дает точные названия и артисты, а YouTube обеспечивает поток.',
-    bullet1: '• Метаданные Last.fm для треков',
+    whyItWorksDescription: 'iTunes дает точные названия и артисты, а YouTube обеспечивает поток.',
+    bullet1: '• Метаданные iTunes для треков',
     bullet2: '• Красивые обложки для каждой песни',
-    bullet3: '• Топ-рекомендации с Last.fm',
+    bullet3: '• Топ-рекомендации с iTunes',
     bullet4: '• Быстрый поиск и плавное воспроизведение',
     allTracksTitle: 'Все треки',
     allTracksDescription: 'Список всех треков из поиска и рекомендаций Last.fm.',
@@ -51,7 +60,18 @@ const dictionary = {
     unknownLength: 'Неизвестно',
     loading: 'Загрузка…',
     selectTrack: 'Выберите трек, чтобы начать',
-    tapCard: 'Нажмите на карточку, чтобы воспроизвести'
+    tapCard: 'Нажмите на карточку, чтобы воспроизвести',
+    popular: 'Популярные треки',
+    popularDescription: 'Самые прослушиваемые треки на Last.fm',
+    listeners: 'Слушателей',
+    plays: 'Прослушиваний',
+    trackDetails: 'Информация о треке',
+    backButton: 'Назад',
+    catalog: 'Каталог',
+    catalogDescription: 'Миллионы песен по жанрам и категориям',
+    genres: 'Жанры',
+    showMore: 'Показать ещё',
+    browseByGenre: 'Обзор по жанрам',
   },
   en: {
     appTitle: 'FOR YOU',
@@ -85,7 +105,18 @@ const dictionary = {
     unknownLength: 'Unknown length',
     loading: 'Loading…',
     selectTrack: 'Choose a track to start',
-    tapCard: 'Tap any card to begin listening'
+    tapCard: 'Tap any card to begin listening',
+    popular: 'Popular tracks',
+    popularDescription: 'Most played tracks on Last.fm',
+    listeners: 'Listeners',
+    plays: 'Plays',
+    trackDetails: 'Track Information',
+    backButton: 'Back',
+    catalog: 'Browse',
+    catalogDescription: 'Millions of songs by genre and category',
+    genres: 'Genres',
+    showMore: 'Show More',
+    browseByGenre: 'Browse by Genre',
   }
 }
 
@@ -106,8 +137,14 @@ export default function App() {
   const [lastfmMatches, setLastfmMatches] = useState<Track[]>([])
   const [recommendations, setRecommendations] = useState<Track[]>([])
   const [featured, setFeatured] = useState<Track[]>([])
+  const [popular, setPopular] = useState<Track[]>([])
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null)
+  const [selectedDetailTrack, setSelectedDetailTrack] = useState<Track | null>(null)
+  const [tags, setTags] = useState<any[]>([])
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  const [tagTracks, setTagTracks] = useState<Track[]>([])
   const [loading, setLoading] = useState(false)
+  const [catalogOffset, setCatalogOffset] = useState(0)
   const locale = dictionary[lang]
 
   async function search(q = searchQuery, markAsLastfm = false) {
@@ -149,16 +186,9 @@ export default function App() {
 
   async function loadRecommendations() {
     try {
-      const res = await fetch('/api/recommendations')
+      const res = await fetch('/api/itunes/search?term=pop&limit=20')
       if (!res.ok) {
-        const text = await res.text()
-        console.error('Recommendations failed:', res.status, text)
-        return
-      }
-      const contentType = res.headers.get('content-type') || ''
-      if (!contentType.includes('application/json')) {
-        const text = await res.text()
-        console.error('Recommendations returned non-JSON response:', contentType, text)
+        console.error('Recommendations failed:', res.status)
         return
       }
       const data = await res.json()
@@ -169,13 +199,108 @@ export default function App() {
     }
   }
 
-  function openTrack(track: Track) {
+  async function loadPopular() {
+    try {
+      const res = await fetch('/api/itunes/search?term=top&limit=50')
+      if (!res.ok) {
+        console.error('Popular tracks failed:', res.status)
+        return
+      }
+      const data = await res.json()
+      setPopular(data)
+    } catch (err) {
+      console.error('Load popular error:', err)
+    }
+  }
+
+  async function loadTags() {
+    try {
+      // Use hardcoded genres since we removed Last.fm
+      const genres = [
+        { name: 'Pop', count: 1000 },
+        { name: 'Rock', count: 800 },
+        { name: 'Hip-Hop', count: 750 },
+        { name: 'Electronic', count: 600 },
+        { name: 'R&B', count: 550 },
+        { name: 'Jazz', count: 400 },
+        { name: 'Classical', count: 350 },
+        { name: 'Country', count: 300 },
+        { name: 'Alternative', count: 280 },
+        { name: 'Metal', count: 250 },
+      ]
+      setTags(genres)
+    } catch (err) {
+      console.error('Load tags error:', err)
+    }
+  }
+
+  async function loadTracksByTag(tag: string) {
+    try {
+      setLoading(true)
+      const res = await fetch(`/api/itunes/search?term=${encodeURIComponent(tag)}&limit=100`)
+      if (!res.ok) {
+        console.error('Tag tracks failed:', res.status)
+        return
+      }
+      const data = await res.json()
+      setTagTracks(data)
+      setSelectedTag(tag)
+      setPage('tag')
+    } catch (err) {
+      console.error('Load tag tracks error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function openTrack(track: Track) {
+    // If track doesn't have videoId, search YouTube first
+    if (!track.videoId && track.searchQuery) {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(track.searchQuery)}&limit=1`)
+        if (res.ok) {
+          const results = await res.json()
+          if (results && results.length > 0) {
+            track = { ...track, videoId: results[0].videoId, url: results[0].url }
+          }
+        }
+      } catch (err) {
+        console.error('YouTube search failed:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
     setSelectedTrack(track)
     setPage('track')
   }
 
+  async function openTrackDetail(track: Track) {
+    // If track doesn't have videoId, search YouTube first
+    if (!track.videoId && track.searchQuery) {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(track.searchQuery)}&limit=1`)
+        if (res.ok) {
+          const results = await res.json()
+          if (results && results.length > 0) {
+            track = { ...track, videoId: results[0].videoId, url: results[0].url }
+          }
+        }
+      } catch (err) {
+        console.error('YouTube search failed:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    setSelectedDetailTrack(track)
+    setPage('track-detail')
+  }
+
   useEffect(() => {
     void loadRecommendations()
+    void loadPopular()
+    void loadTags()
     void search(searchQuery)
   }, [])
 
@@ -192,6 +317,7 @@ export default function App() {
   const pages = [
     { key: 'home' as PageKey, label: locale.home },
     { key: 'search' as PageKey, label: locale.search },
+    { key: 'catalog' as PageKey, label: locale.catalog },
     { key: 'recommendations' as PageKey, label: locale.recommendations },
     { key: 'tracks' as PageKey, label: locale.allTracks }
   ]
@@ -299,6 +425,28 @@ export default function App() {
                 </ul>
               </div>
             </div>
+
+            <div>
+              <h3 className="text-2xl font-semibold mb-4">{locale.popular}</h3>
+              <p className="text-sm text-slate-600 mb-6">{locale.popularDescription}</p>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {popular.map((track) => (
+                  <button key={track.id} onClick={() => openTrackDetail(track)} className="group rounded-3xl overflow-hidden border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+                    <div className="relative h-56 overflow-hidden bg-slate-100">
+                      <img src={track.thumbnail || `/fallback-poster.svg`} alt={track.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                    </div>
+                    <div className="p-4">
+                      <div className="font-semibold truncate">{track.title}</div>
+                      <div className="mt-1 text-sm text-slate-500 truncate">{track.artist}</div>
+                      <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
+                        <span>{track.listeners ? `${(track.listeners / 1000).toFixed(0)}K ${locale.listeners}` : locale.unknownLength}</span>
+                        <button onClick={(e) => { e.stopPropagation(); void search(track.searchQuery, true); }} className="rounded-full bg-slate-100 px-3 py-1 text-slate-900 cursor-pointer hover:bg-slate-200">▶</button>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
           </section>
         )}
 
@@ -317,7 +465,7 @@ export default function App() {
                   className="w-full min-w-[240px] rounded-full border border-slate-300 px-5 py-3 shadow-sm focus:border-slate-500 focus:outline-none"
                 />
                 <button onClick={() => void search(searchQuery)} className="rounded-full bg-slate-950 px-5 py-3 text-white shadow-sm hover:bg-slate-800 transition">
-                  {loading ? <LoadingSpinner className="inline-block align-middle" small /> : locale.searchButton}
+                  {loading ? <LoadingSpinner className="inline-block align-middle" small /> : 'Поиск'}
                 </button>
               </div>
             </div>
@@ -364,10 +512,16 @@ export default function App() {
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => { e.stopPropagation(); void search(track.searchQuery, true); }}
                       className="rounded-full bg-slate-100/90 px-3 py-1 text-xs text-slate-900 cursor-pointer"
-                    >Find</span>
+                    >Найти</span>
                   </div>
                   <div className="relative h-56 overflow-hidden bg-slate-100">
-                    <img src={track.thumbnail || `/fallback-poster.svg`} alt={track.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                    {track.thumbnail ? (
+                      <img src={track.thumbnail} alt={track.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center text-slate-400">
+                        <span className="material-symbols-outlined text-4xl">music_note</span>
+                      </div>
+                    )}
                   </div>
                   <div className="p-4">
                     <div className="font-semibold truncate">{track.title}</div>
@@ -513,6 +667,172 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </section>
+        )}
+
+        {page === 'track-detail' && selectedDetailTrack && (
+          <section className="space-y-6">
+            <div className="flex items-center gap-4 mb-6">
+              <button 
+                onClick={() => setPage('home')} 
+                className="rounded-full border border-slate-300 px-5 py-3 text-slate-700 hover:bg-slate-100 transition"
+              >
+                ← {locale.backButton}
+              </button>
+              <h2 className="text-3xl font-semibold">{locale.trackDetails}</h2>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
+              <div className="rounded-3xl overflow-hidden border border-slate-200 shadow-lg">
+                {selectedDetailTrack.thumbnail ? (
+                  <img 
+                    src={selectedDetailTrack.thumbnail} 
+                    alt={selectedDetailTrack.title}
+                    className="w-full aspect-square object-cover"
+                  />
+                ) : (
+                  <div className="w-full aspect-square bg-gradient-to-br from-cyan-500 to-slate-950 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-6xl text-white">music_note</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h1 className="text-4xl font-bold mb-2">{selectedDetailTrack.title}</h1>
+                  <p className="text-xl text-slate-600">{selectedDetailTrack.artist}</p>
+                </div>
+
+                <button 
+                  onClick={() => PlayerHelper.playTrackExtern(selectedDetailTrack)}
+                  className="rounded-full bg-slate-950 text-white px-8 py-4 font-semibold hover:bg-slate-800 transition"
+                >
+                  ▶ Play
+                </button>
+
+                <div className="space-y-3 bg-slate-50 rounded-3xl p-6">
+                  {selectedDetailTrack.album ? (
+                    <div className="flex justify-between items-center border-b pb-3">
+                      <span className="text-slate-600">Album</span>
+                      <span className="font-semibold">{selectedDetailTrack.album}</span>
+                    </div>
+                  ) : null}
+
+                  {selectedDetailTrack.genre ? (
+                    <div className="flex justify-between items-center border-b pb-3">
+                      <span className="text-slate-600">Genre</span>
+                      <span className="font-semibold">{selectedDetailTrack.genre}</span>
+                    </div>
+                  ) : null}
+
+                  {selectedDetailTrack.releaseDate ? (
+                    <div className="flex justify-between items-center border-b pb-3">
+                      <span className="text-slate-600">Release Date</span>
+                      <span className="font-semibold">{new Date(selectedDetailTrack.releaseDate).toLocaleDateString()}</span>
+                    </div>
+                  ) : null}
+
+                  {selectedDetailTrack.duration ? (
+                    <div className="flex justify-between items-center border-b pb-3">
+                      <span className="text-slate-600">Duration</span>
+                      <span className="font-semibold">{Math.floor(selectedDetailTrack.duration / 60)}:{String(selectedDetailTrack.duration % 60).padStart(2, '0')}</span>
+                    </div>
+                  ) : null}
+
+                  {selectedDetailTrack.previewUrl ? (
+                    <div className="pt-3">
+                      <span className="text-slate-600">Preview</span>
+                      <audio controls src={selectedDetailTrack.previewUrl} className="w-full mt-2" />
+                    </div>
+                  ) : null}
+
+                  <div className="pt-3">
+                    <span className="text-slate-600">Source</span>
+                    <div className="font-semibold">{selectedDetailTrack.source || 'Unknown'}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {page === 'catalog' && (
+          <section className="space-y-8">
+            <div>
+              <h2 className="text-3xl font-semibold mb-2">{locale.catalog}</h2>
+              <p className="text-slate-600 mb-6">{locale.catalogDescription}</p>
+            </div>
+
+            <div>
+              <h3 className="text-2xl font-semibold mb-4">{locale.browseByGenre}</h3>
+              <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {tags.map((tag, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => void loadTracksByTag(tag.name || tag)}
+                    className="rounded-3xl bg-gradient-to-br from-purple-500 to-slate-950 text-white p-4 shadow-lg hover:shadow-xl transition hover:scale-105 text-center"
+                  >
+                    <div className="font-semibold truncate">{tag.name || tag}</div>
+                    <div className="text-xs text-white/70 mt-1">{tag.count || tag.reach || '...'}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-2xl font-semibold mb-4">{locale.popular}</h3>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {popular.slice(0, 30).map((track) => (
+                  <button key={track.id} onClick={() => openTrackDetail(track)} className="group rounded-3xl overflow-hidden border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+                    <div className="relative h-40 overflow-hidden bg-slate-100">
+                      <img src={track.thumbnail || `/fallback-poster.svg`} alt={track.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                    </div>
+                    <div className="p-3">
+                      <div className="font-semibold text-sm truncate">{track.title}</div>
+                      <div className="mt-1 text-xs text-slate-500 truncate">{track.artist}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {page === 'tag' && (
+          <section className="space-y-6">
+            <div className="flex items-center gap-4 mb-6">
+              <button 
+                onClick={() => setPage('catalog')} 
+                className="rounded-full border border-slate-300 px-5 py-3 text-slate-700 hover:bg-slate-100 transition"
+              >
+                ← {locale.backButton}
+              </button>
+              <h2 className="text-3xl font-semibold capitalize">{selectedTag}</h2>
+            </div>
+
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <LoadingSpinner />
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {tagTracks.map((track) => (
+                  <button key={track.id} onClick={() => openTrackDetail(track)} className="group rounded-3xl overflow-hidden border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+                    <div className="relative h-48 overflow-hidden bg-slate-100">
+                      <img src={track.thumbnail || `/fallback-poster.svg`} alt={track.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                    </div>
+                    <div className="p-4">
+                      <div className="font-semibold truncate text-sm">{track.title}</div>
+                      <div className="mt-1 text-xs text-slate-500 truncate">{track.artist}</div>
+                      <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+                        <span>{track.listeners ? `${(track.listeners / 1000).toFixed(0)}K` : '...'}</span>
+                        <button onClick={(e) => { e.stopPropagation(); void search(track.searchQuery, true); }} className="rounded-full bg-slate-100 p-2 hover:bg-slate-200">▶</button>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
         )}
       </main>

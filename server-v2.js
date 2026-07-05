@@ -13,28 +13,85 @@ const PORT = Number(process.env.PORT) || 3009;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/spot';
 
 // ===== DATABASE SETUP =====
-mongoose.connect(MONGO_URI).catch(err => console.error('MongoDB connection error:', err));
+let ListeningHistory;
+let isMongoConnected = false;
 
-// Схема для истории прослушиваний
-const ListeningHistorySchema = new mongoose.Schema({
-  trackId: { type: String, required: true },
-  title: String,
-  artist: String,
-  videoUrl: String,
-  startTime: { type: Date, default: Date.now },
-  startSecond: { type: Number, default: 0 },
-  duration: Number,
-  playedSeconds: Number,
-  status: { type: String, enum: ['playing', 'paused', 'completed', 'skipped'], default: 'playing' },
-  percentage: { type: Number, default: 0 },
+mongoose.connect(MONGO_URI).then(() => {
+  isMongoConnected = true;
+  console.log('✅ MongoDB connected');
+}).catch(err => {
+  console.warn('⚠️ MongoDB not available, using in-memory storage:', err.message);
+  
+  // Use in-memory storage if MongoDB is not available
+  const listeningHistoryData = [];
+  
+  ListeningHistory = {
+    save: async function() {
+      this._id = new Date().getTime().toString();
+      listeningHistoryData.push(this);
+      return this;
+    },
+    find: async function() {
+      return {
+        sort: () => ({
+          limit: () => ({
+            skip: () => ({
+              exec: async () => listeningHistoryData.slice(-50).reverse()
+            })
+          })
+        })
+      };
+    },
+    findOne: async function(query) {
+      return listeningHistoryData.find(h => h.trackId === query.trackId) || null;
+    },
+    countDocuments: async function() {
+      return listeningHistoryData.length;
+    },
+    aggregate: async function(pipeline) {
+      const grouped = {};
+      listeningHistoryData.forEach(h => {
+        if (!grouped[h.trackId]) {
+          grouped[h.trackId] = {
+            _id: h.trackId,
+            title: h.title,
+            artist: h.artist,
+            plays: 0,
+            totalTime: 0,
+            completed: 0,
+            skipped: 0
+          };
+        }
+        grouped[h.trackId].plays++;
+        grouped[h.trackId].totalTime += h.playedSeconds || 0;
+        if (h.status === 'completed') grouped[h.trackId].completed++;
+        if (h.status === 'skipped') grouped[h.trackId].skipped++;
+      });
+      return Object.values(grouped).sort((a, b) => b.plays - a.plays).slice(0, 50);
+    }
+  };
 });
 
-const ListeningHistory = mongoose.model('ListeningHistory', ListeningHistorySchema);
+// If Mongoose schemas are still needed
+if (!ListeningHistory) {
+  const ListeningHistorySchema = new mongoose.Schema({
+    trackId: { type: String, required: true },
+    title: String,
+    artist: String,
+    videoUrl: String,
+    startTime: { type: Date, default: Date.now },
+    startSecond: { type: Number, default: 0 },
+    duration: Number,
+    playedSeconds: Number,
+    status: { type: String, enum: ['playing', 'paused', 'completed', 'skipped'], default: 'playing' },
+    percentage: { type: Number, default: 0 },
+  });
+
+  ListeningHistory = mongoose.model('ListeningHistory', ListeningHistorySchema);
+}
 
 // ===== CONFIG =====
-const LASTFM_API_KEY = process.env.LASTFM_API_KEY || 'c2a61c098826bc02dd78181437242c8b';
-const LASTFM_SHARED_SECRET = process.env.LASTFM_SHARED_SECRET || '4dc0ae6b48c44c7fbdce0addc5f7d6b3';
-const LASTFM_API_ROOT = 'https://ws.audioscrobbler.com/2.0/';
+const ITUNES_API_BASE = 'https://itunes.apple.com/search';
 
 app.use(cors());
 app.use(express.json());
@@ -71,36 +128,27 @@ function sanitizeId(value) {
     .slice(0, 60);
 }
 
-// ===== LAST.FM =====
-async function lastFmRequest(method, params = {}) {
-  const url = new URL(LASTFM_API_ROOT);
-  url.searchParams.set('method', method);
-  url.searchParams.set('api_key', LASTFM_API_KEY);
-  url.searchParams.set('format', 'json');
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
-      url.searchParams.set(key, String(value));
-    }
-  });
-
+// ===== ITUNES SEARCH =====
+/**
+ * Search iTunes for tracks
+ * GET /api/itunes/search?term=query&entity=song&limit=10
+ */
+async function searchItunes(term, entity = 'song', limit = 10) {
   try {
-    const response = await fetch(url.toString());
-    if (!response.ok) throw new Error(`Last.fm error: ${response.status}`);
-    return response.json();
-  } catch (err) {
-    console.error('Last.fm request failed:', err.message);
-    return null;
-  }
-}
+    const url = new URL(ITUNES_API_BASE);
+    url.searchParams.set('term', term);
+    url.searchParams.set('entity', entity);
+    url.searchParams.set('limit', limit);
 
-function getTrackImage(track) {
-  if (!track?.image) return null;
-  if (Array.isArray(track.image)) {
-    const found = track.image.find((item) => item.size === 'mega' || item.size === 'extralarge' || item.size === 'large' || item.size === 'medium');
-    return found?.['#text'] || track.image[0]?.['#text'] || null;
+    const response = await fetch(url.toString());
+    if (!response.ok) throw new Error(`iTunes error: ${response.status}`);
+    
+    const data = await response.json();
+    return data.results || [];
+  } catch (error) {
+    console.error('iTunes search failed:', error.message);
+    return [];
   }
-  return track.image['#text'] || null;
 }
 
 // ===== YOUTUBE STREAMING =====
@@ -327,6 +375,76 @@ app.get('/api/listening-stats', async (req, res) => {
   }
 });
 
+
+
+/**
+ * iTunes Search API endpoint
+ * GET /api/itunes/search?term=query&entity=song&limit=10
+ */
+app.get('/api/itunes/search', async (req, res) => {
+  const term = req.query.term || '';
+  const entity = req.query.entity || 'song';
+  const limit = Math.min(Number(req.query.limit || 10), 50);
+
+  if (!term) {
+    return res.status(400).json({ error: 'Search term required' });
+  }
+
+  try {
+    const results = await searchItunes(term, entity, limit);
+    
+    // Format results to match our Track interface
+    const formattedTracks = results.map(track => ({
+      id: sanitizeId(`${track.trackName}-${track.artistName}`),
+      title: track.trackName,
+      artist: track.artistName,
+      album: track.collectionName,
+      thumbnail: track.artworkUrl100?.replace('100x100', '500x500') || null,
+      duration: track.trackTimeMillis ? Math.floor(track.trackTimeMillis / 1000) : null,
+      previewUrl: track.previewUrl || null,
+      releaseDate: track.releaseDate || null,
+      genre: track.primaryGenreName || null,
+      source: 'itunes',
+      searchQuery: `${track.trackName} ${track.artistName}`.trim(),
+    }));
+
+    res.json(formattedTracks);
+  } catch (error) {
+    console.error('iTunes search error:', error);
+    res.status(500).json({ error: 'iTunes search failed', details: error.message });
+  }
+});
+
+/**
+ * Получить информацию о треке
+ */
+app.get('/api/track/:trackId', async (req, res) => {
+  const { trackId } = req.params;
+  
+  if (!trackId) {
+    return res.status(400).json({ error: 'Track ID required' });
+  }
+
+  try {
+    // Попытка найти в истории прослушиваний
+    const history = await ListeningHistory.findOne({ trackId }).sort({ startTime: -1 });
+    
+    if (history) {
+      return res.json(history);
+    }
+
+    // Если не найдено, вернуть базовую информацию
+    res.json({ 
+      id: trackId,
+      message: 'Track found but no detailed info available',
+      history: null 
+    });
+  } catch (error) {
+    console.error('Track info error:', error);
+    res.status(500).json({ error: 'Failed to get track info' });
+  }
+});
+
 /**
  * Тестовый endpoint
  */
@@ -338,6 +456,7 @@ app.get('/api/hello', (req, res) => {
 app.listen(PORT, () => {
   console.log(`\n✅ Server running on http://localhost:${PORT}`);
   console.log(`📊 Search: GET /api/search?q=query`);
+  console.log(`⭐ Popular: GET /api/popular?limit=20`);
   console.log(`🎵 Stream: GET /api/stream/:videoId`);
   console.log(`📝 History: POST /api/listening-history`);
   console.log(`📈 Stats: GET /api/listening-stats\n`);
